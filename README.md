@@ -1,5 +1,6 @@
 # iron_crown
 A 2d statetgy ascii game in the terminal
+This game only works on mac / linux 
 
 
 ## install 
