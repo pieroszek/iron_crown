@@ -778,6 +778,10 @@ int main() {
     pthread_mutex_destroy(&grid_mutex);
  pthread_mutex_destroy(&a_ls_mutex);
  pthread_mutex_destroy(&a_sp_mutex);
+ pthread_mutex_destroy(&f_ls_mutex);
+ pthread_mutex_destroy(&f_sp_mutex);
+ pthread_mutex_destroy(&c_ls_mutex);
+ pthread_mutex_destroy(&c_sp_mutex);
 
     return 0;
 }
