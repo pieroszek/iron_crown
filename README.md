@@ -1,4 +1,4 @@
-`
+```
         +
   *    / \    *
  OnO  ;xxx;  OnO
@@ -10,7 +10,7 @@ O_O_O_O_O_O_O_O_O
  I    / i \    I
  I   I: i :I   I
  I___I:_i_:I___I
-`
+```
 
 # iron_crown
 A 2d statetgy ascii game in the terminal
