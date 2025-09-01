@@ -21,6 +21,7 @@
 #define BUFFER_SIZE 256
 #define MESSAGE_SIZE 32
 #define REFRESH_RATE 50000 // 50ms refresh rate
+#define MAX_ARMIES 100
 
 // ==================== DATA STRUCTURES ====================
 typedef struct {
@@ -33,14 +34,26 @@ typedef struct {
 } city_t;
 
 typedef struct {
+	int x;
+	int y;
+	int s;
+	int o;
+} army_t;
+
+typedef struct {
         int sockfd;
         pthread_t network_thread;
         volatile int running;
         char grid[GRID_SIZE][GRID_SIZE];
         city_t cities[MAX_CITIES];
         int city_count;
+	army_t armies[MAX_ARMIES];
+	int army_count;
+
         pthread_mutex_t cities_mutex;
         pthread_mutex_t grid_mutex;
+	pthread_mutex_t armies_mutex;
+
         int needs_redraw; // Flag to indicate UI needs refresh
 } client_state_t;
 
@@ -59,7 +72,7 @@ void* network_handler(void* arg) {
                 buffer[bytes] = '\0';
                 
                 // Parse server updates
-                int x, y, p, o, rt, r;
+                int x, y, p, o, rt, r, s;
                 
                 if (sscanf(buffer, "SET %d %d", &x, &y) == 2) {
                         if (x >= 0 && x < GRID_SIZE && y >= 0 && y < GRID_SIZE) {
@@ -81,7 +94,21 @@ void* network_handler(void* arg) {
                                 state->needs_redraw = 1; // Trigger redraw
                         }
                         pthread_mutex_unlock(&state->cities_mutex);
-                } else if (strncmp(buffer, "END_INIT", 8) == 0) {
+				
+		  
+                } else if (sscanf(buffer, "ARMY %d %d %d %d", &x, &y, &s, &o) == 4){
+			pthread_mutex_lock(&state->armies_mutex);
+			if (state->army_count < MAX_ARMIES) {
+				state->armies[state->army_count].x = x;
+				state->armies[state->army_count].y = y;
+				state->armies[state->army_count].s = s;
+				state->armies[state->army_count].o = o;
+				state->army_count++;
+				state->needs_redraw = 1;
+			}
+			pthread_mutex_unlock(&state->armies_mutex);
+
+		} else if (strncmp(buffer, "END_INIT", 8) == 0) {
                         state->needs_redraw = 1; // Trigger redraw after initial state
                 }
         }
