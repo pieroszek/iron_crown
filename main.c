@@ -22,6 +22,7 @@
 #define MESSAGE_SIZE 32
 #define REFRESH_RATE 50000 // 50ms refresh rate
 #define MAX_ARMIES 100
+#define MAX_LORIES 100
 
 // ==================== DATA STRUCTURES ====================
 typedef struct {
@@ -41,6 +42,14 @@ typedef struct {
 } army_t;
 
 typedef struct {
+	int x;
+	int y;
+	int o;
+	int rt;
+	int r;
+} lory_t;
+
+typedef struct {
         int sockfd;
         pthread_t network_thread;
         volatile int running;
@@ -49,10 +58,13 @@ typedef struct {
         int city_count;
 	army_t armies[MAX_ARMIES];
 	int army_count;
+	lory_t lories[MAX_LORIES];
+	int lory_count;
 
         pthread_mutex_t cities_mutex;
         pthread_mutex_t grid_mutex;
 	pthread_mutex_t armies_mutex;
+	pthread_mutex_t lories_mutex;
 
         int needs_redraw; // Flag to indicate UI needs refresh
 } client_state_t;
