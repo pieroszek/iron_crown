@@ -3,7 +3,6 @@
 /* TO DO */
 /*       */
 /*       */
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -21,6 +20,7 @@
 #define MAX_CITIES 100
 #define BUFFER_SIZE 256
 #define MESSAGE_SIZE 32
+#define REFRESH_RATE 50000 // 50ms refresh rate
 
 // ==================== DATA STRUCTURES ====================
 typedef struct {
@@ -33,13 +33,15 @@ typedef struct {
 } city_t;
 
 typedef struct {
-	int sockfd;
+        int sockfd;
         pthread_t network_thread;
         volatile int running;
         char grid[GRID_SIZE][GRID_SIZE];
         city_t cities[MAX_CITIES];
         int city_count;
         pthread_mutex_t cities_mutex;
+        pthread_mutex_t grid_mutex;
+        int needs_redraw; // Flag to indicate UI needs refresh
 } client_state_t;
 
 // ==================== NETWORK FUNCTIONS ====================
@@ -61,7 +63,10 @@ void* network_handler(void* arg) {
                 
                 if (sscanf(buffer, "SET %d %d", &x, &y) == 2) {
                         if (x >= 0 && x < GRID_SIZE && y >= 0 && y < GRID_SIZE) {
+                                pthread_mutex_lock(&state->grid_mutex);
                                 state->grid[y][x] = 'X';
+                                pthread_mutex_unlock(&state->grid_mutex);
+                                state->needs_redraw = 1; // Trigger redraw
                         }
                 } else if (sscanf(buffer, "CITY %d %d %d %d %d %d", &x, &y, &p, &o, &rt, &r) == 6) {
                         pthread_mutex_lock(&state->cities_mutex);
@@ -73,10 +78,11 @@ void* network_handler(void* arg) {
                                 state->cities[state->city_count].rt = rt;
                                 state->cities[state->city_count].r = r;
                                 state->city_count++;
+                                state->needs_redraw = 1; // Trigger redraw
                         }
                         pthread_mutex_unlock(&state->cities_mutex);
                 } else if (strncmp(buffer, "END_INIT", 8) == 0) {
-                        // Initial game state received
+                        state->needs_redraw = 1; // Trigger redraw after initial state
                 }
         }
         
@@ -113,11 +119,13 @@ int connect_to_server(client_state_t* state, const char* server_ip) {
 
 // ==================== UI FUNCTIONS ====================
 void init_grid(client_state_t* state) {
+        pthread_mutex_lock(&state->grid_mutex);
         for (int y = 0; y < GRID_SIZE; y++) {
                 for (int x = 0; x < GRID_SIZE; x++) {
                         state->grid[y][x] = '.';
                 }
         }
+        pthread_mutex_unlock(&state->grid_mutex);
 }
 
 void draw_cities(client_state_t* state) {
@@ -130,13 +138,24 @@ void draw_cities(client_state_t* state) {
 
 void draw_grid(client_state_t* state) {
         clear();
+        
+        // Draw grid cells
+        pthread_mutex_lock(&state->grid_mutex);
         for (int y = 0; y < GRID_SIZE; y++) {
                 for (int x = 0; x < GRID_SIZE; x++) {
                         mvprintw(y, x * CELL_SPACING, "%c", state->grid[y][x]);
                 }
         }
+        pthread_mutex_unlock(&state->grid_mutex);
+        
+        // Draw cities
         draw_cities(state);
+        
+        // Add some UI information
+        mvprintw(GRID_SIZE + 1, 0, "Cities: %d | Click to place X | F1 to quit", state->city_count);
         refresh();
+        
+        state->needs_redraw = 0; // Reset redraw flag
 }
 
 void handle_click(client_state_t* state, MEVENT* event) {
@@ -155,6 +174,7 @@ void init_ncurses() {
         curs_set(0);
         mousemask(BUTTON1_CLICKED, NULL);
         keypad(stdscr, TRUE);
+        timeout(100); // Non-blocking input with 100ms timeout
 }
 
 // ==================== MAIN APPLICATION ====================
@@ -163,7 +183,9 @@ int main() {
                 .sockfd = 0,
                 .running = 1,
                 .city_count = 0,
-                .cities_mutex = PTHREAD_MUTEX_INITIALIZER
+                .cities_mutex = PTHREAD_MUTEX_INITIALIZER,
+                .grid_mutex = PTHREAD_MUTEX_INITIALIZER,
+                .needs_redraw = 1 // Start with needing a redraw
         };
         
         // Connect to server
@@ -182,12 +204,25 @@ int main() {
         // Main input loop
         MEVENT event;
         int ch;
-        while (state.running && (ch = getch()) != KEY_F(1)) {
+        
+        while (state.running) {
+                // Check for input with timeout
+                ch = getch();
+                
                 if (ch == KEY_MOUSE && getmouse(&event) == OK) {
                         handle_click(&state, &event);
+                } else if (ch == KEY_F(1)) {
+                        state.running = 0;
+                        break;
                 }
-                draw_grid(&state);
-                usleep(10000); // Small delay to prevent high CPU usage
+                
+                // Redraw if needed or periodically
+                if (state.needs_redraw) {
+                        draw_grid(&state);
+                }
+                
+                // Small delay to prevent high CPU usage
+                usleep(REFRESH_RATE);
         }
         
         // Cleanup
