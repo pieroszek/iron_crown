@@ -1,347 +1,200 @@
-#include <ncurses.h>
-#include <unistd.h>
-#include <pthread.h>
+/* CLIENT SIDE */
+
+/* TO DO */
+/*       */
+/*       */
+
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <time.h>
-
+#include <unistd.h>
+#include <pthread.h>
 #include <sys/socket.h>
-#include <arpa/inet.h>
 #include <netinet/in.h>
-#include <errno.h>
+#include <arpa/inet.h>
+#include <ncurses.h>
 
-#define HEIGHT 40
-#define WIDTH  40
+// ==================== CONSTANTS ====================
+#define PORT 8080
+#define GRID_SIZE 40
+#define CELL_SPACING 2
+#define MAX_CITIES 100
+#define BUFFER_SIZE 256
+#define MESSAGE_SIZE 32
 
-#define c_ls_len 100
+// ==================== DATA STRUCTURES ====================
+typedef struct {
+        int x;
+        int y;
+        int p;
+        int o;
+        int rt;
+        int r;
+} city_t;
 
-struct city{
-	int x, y;
-	int rt; //resource type
-	int r1, r2, r3; //r1 = food, r2 = wood, r3 = metal
-	int o; //owner
-	int p; //pop
-};
+typedef struct {
+	int sockfd;
+        pthread_t network_thread;
+        volatile int running;
+        char grid[GRID_SIZE][GRID_SIZE];
+        city_t cities[MAX_CITIES];
+        int city_count;
+        pthread_mutex_t cities_mutex;
+} client_state_t;
 
-struct army{
-	int cx,cy; //curr x y
-	int tx,ty; //target x y
-	int m, s; // ismoving and size
-	int o, f; // owner and isfighting
-};
-
-struct fleet{
-	int cx, cy;
-	int tx, ty;
-	int o, m, rt, r, f;
-};
-
-// test
-
-struct test{
-	int x,y;
-};
-struct test * t_ls[100];
-pthread_mutex_t t_ls_mtx;
-int t_sp = -1;
-pthread_mutex_t t_sp_mtx;
-
-void parse_test(const char * msg){
-	if(msg[0] != 'T'){
-		return;
-	}
-	int r = 0;
-	int x = -1;
-	int y = -1;
-	for(int i = 1;msg[i] != 'X'; i++){
-		if(msg[i] - 48 >= 0 && msg[i] - 48 <= 9){
-			r *= 10;
-			r += msg[i] - 48;
-		}
-		if(msg[i] == ' '){
-			if(x < 0){
-				x = r;
-				r = 0;
-			}
-			else if(y < 0){
-				y = r;
-			}
-		}
-			
-
-
-	}
-		
-	struct test * new = malloc(sizeof(struct test));
-	new->x = x;
-	new->y = y;
-
-	pthread_mutex_lock(&t_ls_mtx);
-	pthread_mutex_lock(&t_sp_mtx);
-	t_sp++;
-	t_ls[t_sp] = new;
-	pthread_mutex_unlock(&t_ls_mtx);
-	pthread_mutex_unlock(&t_ls_mtx);
-
-	return;
-}
-
-//
-
-
-char grid[HEIGHT][WIDTH];
-pthread_mutex_t grid_mutex = PTHREAD_MUTEX_INITIALIZER;
-
-struct city * c_ls[c_ls_len];
-pthread_mutex_t c_ls_mtx;
-
-int c_sp = -1;
-pthread_mutex_t c_sp_mtx;
-
-/* city */
-
-void cr_city(int x, int y){
-	if(x < 0 || x > WIDTH) return;
-	if(y < 0 || y > HEIGHT) return;
-
-	struct city * nc = malloc(sizeof(struct city));
-	nc->x = x;
-	nc->y = y;
-	nc->rt = 0;
-	nc->r1 = 0;
-	nc->r2 = 0;
-	nc->r3 = 0;
-	nc->o = 0;
-	nc->p = 100;
-
-	pthread_mutex_lock(&c_ls_mtx);
-	pthread_mutex_lock(&c_sp_mtx);
-	c_sp++;
-	c_ls[c_sp] = nc;
-	pthread_mutex_unlock(&c_ls_mtx);
-	pthread_mutex_unlock(&c_sp_mtx);
-	
-	return;
-}
-
-void draw_cities(){
-
-	if(c_sp < 0) return;
-
-	for(int i = 0; i <= c_sp; i++){
-		pthread_mutex_lock(&grid_mutex);
-		grid[c_ls[i]->y][c_ls[i]->x] = '@';
-		pthread_mutex_unlock(&grid_mutex);
-	}
-
-	return;
-}
-
-/**/
-
-void draw_testies(){
-
-	if(t_sp < 0) return;
-
-	for(int i = 0; i <= t_sp; i++){
-		pthread_mutex_lock(&grid_mutex);
-		grid[t_ls[i]->y][t_ls[i]->x] = '#';
-		pthread_mutex_unlock(&grid_mutex);
-	}
-
-	return;
-}
-
-/* networking */
-
-
-int sockfd;
-char received_data[1024];
-
-void send_to_server(const char *msg) {
-	/**/ 
-	 if (sockfd >= 0) {
-        send(sockfd, msg, strlen(msg), 0);
-    } else {
-        fprintf(stderr, "Attempted to send on closed socket\n");
-    }
-    /**/
-   
-}
-
-
-
-/* recv thread (unchanged) */
-void* recv_thread_func(void *arg) {
-    int sock = *(int*)arg; 
-    free(arg);
-    //send_to_server("hi");
-    while (1) {
-        int len = recv(sock, received_data, sizeof(received_data) - 1, 0);
-        if (len > 0) {
-            received_data[len] = '\0';
-	    
-            mvprintw(HEIGHT + 10, 0,"Received: %s", received_data);
-	    parse_test(received_data);
-
-        } else if (len == 0) {
-            mvprintw(HEIGHT + 10, 0,"Server closed connection.");
-            break;
-        } else {
-
-            perror("recv");
-	   
-            break;
-        }
-    }
-    return NULL;
-}
-
-/**/
-
-/* tick */
-int cl_st = 0;
-void * game_tick_thread_func(void * arg){
-	free(arg);
-	usleep(1000);
-	if(cl_st < 10) cl_st++;
-	else cl_st = 0;
-
-	return NULL;
-}
-/**/
-
-/* Draw a simple 2D grid: each cell is 1 row × 3 columns */
-void draw_grid() {
-    pthread_mutex_lock(&grid_mutex);
-    for (int y = 0; y < HEIGHT; y++) {
-        for (int x = 0; x < WIDTH; x++) {
-            int scr_y = y;       // 1 row per cell
-            int scr_x = x * 2; 
-            mvprintw(scr_y, scr_x, "%c", grid[y][x]);
-        }
-    }
-    pthread_mutex_unlock(&grid_mutex); 
-   
-    refresh();
-}
-
-int main(int argc, char *argv[]) {
-    if (argc != 3) {
-        fprintf(stderr, "Usage: %s <IP> <PORT>\n", argv[0]);
-        return 1;
-    }
-
-    const char *server_ip = argv[1];
-    int         port      = atoi(argv[2]);
-
-    struct sockaddr_in server_addr;
-    sockfd = socket(AF_INET, SOCK_STREAM, 0);
-    if (sockfd < 0) {
-        perror("socket");
-        return 1;
-    }
-
-    server_addr.sin_family = AF_INET;
-    server_addr.sin_port   = htons(port);
-    inet_pton(AF_INET, server_ip, &server_addr.sin_addr);
-
-    if (connect(sockfd, (struct sockaddr*)&server_addr, sizeof(server_addr)) < 0) {
-        perror("connect");
-        close(sockfd);
-        return 1;
-    }
-
-    /* spawn tick thread */
-    pthread_t game_tick_thread;
-    if (pthread_create(&game_tick_thread, NULL, game_tick_thread_func, NULL) != 0) {
-        perror("pthread_create (game_tick_thread)");
-        return 1;
-    }
-    pthread_detach(game_tick_thread);  
-
-    /**/
-
-    /* Spawn recv thread */
-    int *sock_ptr = malloc(sizeof(int));
-    if (!sock_ptr) { perror("malloc"); exit(1); }
-    *sock_ptr = sockfd;
-
-    pthread_t recv_thread;
-    if (pthread_create(&recv_thread, NULL, recv_thread_func, sock_ptr) != 0) {
-        perror("pthread_create");
-        free(sock_ptr);
-        close(sockfd);
-        exit(1);
-    }
-    pthread_detach(recv_thread);
-
-    /* ─── ncurses initialization ─────────────────────────────────────────── */
-    initscr();
-    cbreak();
-    noecho();
-    keypad(stdscr, TRUE);             // enable arrow keys / function keys
-    mousemask(ALL_MOUSE_EVENTS, NULL); // enable basic mouse events
-    nodelay(stdscr, FALSE);           // getch() will block
-    curs_set(0);                      // hide the cursor
-
-    /* Initialize the grid contents to '.' before drawing */
-    for (int y = 0; y < HEIGHT; y++) {
-        for (int x = 0; x < WIDTH; x++) {
-            grid[y][x] = '.';
-        }
-    }
-
-    /* Initial draw */
-    draw_grid();
-    mvprintw(HEIGHT + 1, 0, "Connected to server. (Press 'q' to quit)");
-
-    /* ─── Main input loop ────────────────────────────────────────────────── */
-    MEVENT event;
-    while (1) {
-        int ch = getch();
-        if (ch == KEY_MOUSE) {
-            if (getmouse(&event) == OK) {
-		
-                int mx = event.x;
-                int my = event.y;
-                /* Translate to grid coords: each cell is 3 columns wide, 1 row tall */
-                int gx = mx / 2;
-                int gy = my / 1;
-
-                if (gx >= 0 && gx < WIDTH && gy >= 0 && gy < HEIGHT) {
-                    pthread_mutex_lock(&grid_mutex);
-                    /* toggle between '.' and 'X' on click */
-                    if (grid[gy][gx] == '.') grid[gy][gx] = '#';
-                    else                    grid[gy][gx] = '.';
-			
-		    char str_to_serv[100];
-		    snprintf(str_to_serv,sizeof(str_to_serv), "TEST %d %d", gx, gy);
-		    send_to_server(str_to_serv);
-		    
-
-                    /* Redraw only that cell (same calculation as draw_grid) */
-                    int scr_y = gy;       
-                    int scr_x = gx * 2;   
-                    mvprintw(scr_y, scr_x, "%c", grid[gy][gx]);
-                    pthread_mutex_unlock(&grid_mutex);
-		    mvprintw(HEIGHT, 0, "	                       ");
-		    mvprintw(HEIGHT + 10, 0, "	                       ");
-		    mvprintw(HEIGHT, 0, "x: %d, y: %d", scr_x / 2, scr_y);
-                    refresh();
+// ==================== NETWORK FUNCTIONS ====================
+void* network_handler(void* arg) {
+        client_state_t* state = (client_state_t*)arg;
+        char buffer[BUFFER_SIZE];
+        
+        while (state->running) {
+                int bytes = recv(state->sockfd, buffer, sizeof(buffer) - 1, 0);
+                if (bytes <= 0) {
+                        state->running = 0;
+                        break;
                 }
-            }
+                
+                buffer[bytes] = '\0';
+                
+                // Parse server updates
+                int x, y, p, o, rt, r;
+                
+                if (sscanf(buffer, "SET %d %d", &x, &y) == 2) {
+                        if (x >= 0 && x < GRID_SIZE && y >= 0 && y < GRID_SIZE) {
+                                state->grid[y][x] = 'X';
+                        }
+                } else if (sscanf(buffer, "CITY %d %d %d %d %d %d", &x, &y, &p, &o, &rt, &r) == 6) {
+                        pthread_mutex_lock(&state->cities_mutex);
+                        if (state->city_count < MAX_CITIES) {
+                                state->cities[state->city_count].x = x;
+                                state->cities[state->city_count].y = y;
+                                state->cities[state->city_count].p = p;
+                                state->cities[state->city_count].o = o;
+                                state->cities[state->city_count].rt = rt;
+                                state->cities[state->city_count].r = r;
+                                state->city_count++;
+                        }
+                        pthread_mutex_unlock(&state->cities_mutex);
+                } else if (strncmp(buffer, "END_INIT", 8) == 0) {
+                        // Initial game state received
+                }
         }
- 
-        else if (ch == 'q' || ch == 'Q') {
-            break;
-        }
-        /* else: ignore other keys */
-    }
-
-    endwin();    /* restore terminal */
-    close(sockfd);
-    return 0;
+        
+        return NULL;
 }
-   
- 
+
+void send_click(client_state_t* state, int x, int y) {
+        char msg[MESSAGE_SIZE];
+        snprintf(msg, sizeof(msg), "CLICK %d %d\n", x, y);
+        send(state->sockfd, msg, strlen(msg), 0);
+}
+
+int connect_to_server(client_state_t* state, const char* server_ip) {
+        struct sockaddr_in serv_addr;
+        
+        state->sockfd = socket(AF_INET, SOCK_STREAM, 0);
+        if (state->sockfd < 0) {
+                return -1;
+        }
+        
+        serv_addr.sin_family = AF_INET;
+        serv_addr.sin_port = htons(PORT);
+        
+        if (inet_pton(AF_INET, server_ip, &serv_addr.sin_addr) <= 0) {
+                return -1;
+        }
+        
+        if (connect(state->sockfd, (struct sockaddr*)&serv_addr, sizeof(serv_addr)) < 0) {
+                return -1;
+        }
+        
+        return 0;
+}
+
+// ==================== UI FUNCTIONS ====================
+void init_grid(client_state_t* state) {
+        for (int y = 0; y < GRID_SIZE; y++) {
+                for (int x = 0; x < GRID_SIZE; x++) {
+                        state->grid[y][x] = '.';
+                }
+        }
+}
+
+void draw_cities(client_state_t* state) {
+        pthread_mutex_lock(&state->cities_mutex);
+        for (int i = 0; i < state->city_count; i++) {
+                mvprintw(state->cities[i].y, state->cities[i].x * CELL_SPACING, "%c", '@');
+        }
+        pthread_mutex_unlock(&state->cities_mutex);
+}
+
+void draw_grid(client_state_t* state) {
+        clear();
+        for (int y = 0; y < GRID_SIZE; y++) {
+                for (int x = 0; x < GRID_SIZE; x++) {
+                        mvprintw(y, x * CELL_SPACING, "%c", state->grid[y][x]);
+                }
+        }
+        draw_cities(state);
+        refresh();
+}
+
+void handle_click(client_state_t* state, MEVENT* event) {
+        int grid_x = event->x / CELL_SPACING;
+        int grid_y = event->y;
+        
+        if (grid_x >= 0 && grid_x < GRID_SIZE && grid_y >= 0 && grid_y < GRID_SIZE) {
+                send_click(state, grid_x, grid_y);
+        }
+}
+
+void init_ncurses() {
+        initscr();
+        cbreak();
+        noecho();
+        curs_set(0);
+        mousemask(BUTTON1_CLICKED, NULL);
+        keypad(stdscr, TRUE);
+}
+
+// ==================== MAIN APPLICATION ====================
+int main() {
+        client_state_t state = {
+                .sockfd = 0,
+                .running = 1,
+                .city_count = 0,
+                .cities_mutex = PTHREAD_MUTEX_INITIALIZER
+        };
+        
+        // Connect to server
+        if (connect_to_server(&state, "127.0.0.1") < 0) {
+                perror("Connection failed");
+                return 1;
+        }
+        
+        // Initialize UI
+        init_ncurses();
+        init_grid(&state);
+        
+        // Start network thread
+        pthread_create(&state.network_thread, NULL, network_handler, &state);
+        
+        // Main input loop
+        MEVENT event;
+        int ch;
+        while (state.running && (ch = getch()) != KEY_F(1)) {
+                if (ch == KEY_MOUSE && getmouse(&event) == OK) {
+                        handle_click(&state, &event);
+                }
+                draw_grid(&state);
+                usleep(10000); // Small delay to prevent high CPU usage
+        }
+        
+        // Cleanup
+        state.running = 0;
+        pthread_join(state.network_thread, NULL);
+        endwin();
+        close(state.sockfd);
+        
+        return 0;
+}
