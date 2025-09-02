@@ -20,6 +20,7 @@
 A 2d statetgy ascii game in the terminal
 This game only works on mac / linux 
 
+server side : https://github.com/pieroszek/iron_crown_server
 
 ## install 
 I used ncurses, i use:
