@@ -1,8 +1,5 @@
 /* CLIENT SIDE */
 
-/* TO DO */
-/*       */
-/*       */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -14,7 +11,7 @@
 #include <ncurses.h>
 
 // ==================== CONSTANTS ====================
-#define PORT 8080
+#define DEFAULT_PORT 8080
 #define GRID_SIZE 40
 #define CELL_SPACING 2
 #define MAX_CITIES 100
@@ -28,25 +25,25 @@
 typedef struct {
         int x;
         int y;
-        int p;
-        int o;
-        int rt;
-        int r;
+        int p; //population
+        int o; //owner
+        int rt; //resource type
+        int r; //resource amount
 } city_t;
 
 typedef struct {
-	int x;
-	int y;
-	int s;
-	int o;
+        int x;
+        int y;
+        int s; //size
+        int o;
 } army_t;
 
 typedef struct {
-	int x;
-	int y;
-	int o;
-	int rt;
-	int r;
+        int x;
+        int y;
+        int o;
+        int rt;
+        int r;
 } lory_t;
 
 typedef struct {
@@ -56,15 +53,15 @@ typedef struct {
         char grid[GRID_SIZE][GRID_SIZE];
         city_t cities[MAX_CITIES];
         int city_count;
-	army_t armies[MAX_ARMIES];
-	int army_count;
-	lory_t lories[MAX_LORIES];
-	int lory_count;
+        army_t armies[MAX_ARMIES];
+        int army_count;
+        lory_t lories[MAX_LORIES];
+        int lory_count;
 
         pthread_mutex_t cities_mutex;
         pthread_mutex_t grid_mutex;
-	pthread_mutex_t armies_mutex;
-	pthread_mutex_t lories_mutex;
+        pthread_mutex_t armies_mutex;
+        pthread_mutex_t lories_mutex;
 
         int needs_redraw; // Flag to indicate UI needs refresh
 } client_state_t;
@@ -106,21 +103,20 @@ void* network_handler(void* arg) {
                                 state->needs_redraw = 1; // Trigger redraw
                         }
                         pthread_mutex_unlock(&state->cities_mutex);
-				
-		  
+                          
                 } else if (sscanf(buffer, "ARMY %d %d %d %d", &x, &y, &s, &o) == 4){
-			pthread_mutex_lock(&state->armies_mutex);
-			if (state->army_count < MAX_ARMIES) {
-				state->armies[state->army_count].x = x;
-				state->armies[state->army_count].y = y;
-				state->armies[state->army_count].s = s;
-				state->armies[state->army_count].o = o;
-				state->army_count++;
-				state->needs_redraw = 1;
-			}
-			pthread_mutex_unlock(&state->armies_mutex);
+                        pthread_mutex_lock(&state->armies_mutex);
+                        if (state->army_count < MAX_ARMIES) {
+                                state->armies[state->army_count].x = x;
+                                state->armies[state->army_count].y = y;
+                                state->armies[state->army_count].s = s;
+                                state->armies[state->army_count].o = o;
+                                state->army_count++;
+                                state->needs_redraw = 1;
+                        }
+                        pthread_mutex_unlock(&state->armies_mutex);
 
-		} else if (strncmp(buffer, "END_INIT", 8) == 0) {
+                } else if (strncmp(buffer, "END_INIT", 8) == 0) {
                         state->needs_redraw = 1; // Trigger redraw after initial state
                 }
         }
@@ -134,22 +130,25 @@ void send_click(client_state_t* state, int x, int y) {
         send(state->sockfd, msg, strlen(msg), 0);
 }
 
-int connect_to_server(client_state_t* state, const char* server_ip) {
+int connect_to_server(client_state_t* state, const char* server_ip, int port) {
         struct sockaddr_in serv_addr;
         
         state->sockfd = socket(AF_INET, SOCK_STREAM, 0);
         if (state->sockfd < 0) {
+                perror("Socket creation failed");
                 return -1;
         }
         
         serv_addr.sin_family = AF_INET;
-        serv_addr.sin_port = htons(PORT);
+        serv_addr.sin_port = htons(port);
         
         if (inet_pton(AF_INET, server_ip, &serv_addr.sin_addr) <= 0) {
+                perror("Invalid address/Address not supported");
                 return -1;
         }
         
         if (connect(state->sockfd, (struct sockaddr*)&serv_addr, sizeof(serv_addr)) < 0) {
+                perror("Connection failed");
                 return -1;
         }
         
@@ -216,22 +215,58 @@ void init_ncurses() {
         timeout(100); // Non-blocking input with 100ms timeout
 }
 
+void print_usage(const char* program_name) {
+        printf("Usage: %s <IP_ADDRESS> <PORT>\n", program_name);
+        printf("Example: %s 34.120.32.123 8080\n", program_name);
+        printf("         %s 127.0.0.1 8080\n", program_name);
+}
+
 // ==================== MAIN APPLICATION ====================
-int main() {
+int main(int argc, char *argv[]) {
+        char *server_ip = "127.0.0.1";
+        int port = DEFAULT_PORT;
+        
+        // Parse command line arguments
+        if (argc < 2) {
+                printf("Using default connection: %s:%d\n", server_ip, port);
+        } else if (argc == 2) {
+                server_ip = argv[1];
+                printf("Using IP: %s, default port: %d\n", server_ip, port);
+        } else if (argc == 3) {
+                server_ip = argv[1];
+                port = atoi(argv[2]);
+                if (port <= 0 || port > 65535) {
+                        fprintf(stderr, "Error: Invalid port number. Must be between 1 and 65535.\n");
+                        print_usage(argv[0]);
+                        return 1;
+                }
+                printf("Connecting to: %s:%d\n", server_ip, port);
+        } else {
+                fprintf(stderr, "Error: Too many arguments.\n");
+                print_usage(argv[0]);
+                return 1;
+        }
+
         client_state_t state = {
                 .sockfd = 0,
                 .running = 1,
                 .city_count = 0,
+                .army_count = 0,
+                .lory_count = 0,
                 .cities_mutex = PTHREAD_MUTEX_INITIALIZER,
                 .grid_mutex = PTHREAD_MUTEX_INITIALIZER,
+                .armies_mutex = PTHREAD_MUTEX_INITIALIZER,
+                .lories_mutex = PTHREAD_MUTEX_INITIALIZER,
                 .needs_redraw = 1 // Start with needing a redraw
         };
         
         // Connect to server
-        if (connect_to_server(&state, "127.0.0.1") < 0) {
-                perror("Connection failed");
+        if (connect_to_server(&state, server_ip, port) < 0) {
+                fprintf(stderr, "Failed to connect to server %s:%d\n", server_ip, port);
                 return 1;
         }
+        
+        printf("Connected successfully to %s:%d\n", server_ip, port);
         
         // Initialize UI
         init_ncurses();
@@ -270,5 +305,6 @@ int main() {
         endwin();
         close(state.sockfd);
         
+        printf("Disconnected from server.\n");
         return 0;
 }
