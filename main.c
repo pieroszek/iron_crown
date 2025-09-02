@@ -116,7 +116,20 @@ void* network_handler(void* arg) {
                         }
                         pthread_mutex_unlock(&state->armies_mutex);
 
-                } else if (strncmp(buffer, "END_INIT", 8) == 0) {
+                } else if (sscanf(buffer, "LORY %d %d %d %d %d", &x, &y, &rt, &r, &o) == 5){
+			pthread_mutex_lock(&state->lories_mutex);
+			if (state->lory_count < MAX_LORIES) {
+				state->lories[state->lory_count].x = x;
+				state->lories[state->lory_count].y = y;
+				state->lories[state->lory_count].rt = rt;
+				state->lories[state->lory_count].r = r;
+				state->lories[state->lory_count].o = o;
+			}
+			pthread_mutex_unlock(&state->lories_mutex);
+
+
+
+		} else if (strncmp(buffer, "END_INIT", 8) == 0) {
                         state->needs_redraw = 1; // Trigger redraw after initial state
                 }
         }
@@ -182,6 +195,14 @@ void draw_armies(client_state_t* state) {
 	pthread_mutex_unlock(&state->armies_mutex);
 }
 
+void draw_lories(client_state_t* state) {
+	pthread_mutex_lock(&state->lories_mutex);
+	for (int i = 0; i < state->lory_count; i++) {
+		mvprintw(state->lories[i].x, state->lories[i].y * CELL_SPACING, "%c", 'L');
+	}
+	pthread_mutex_unlock(&state->lories_mutex);
+}
+
 void draw_grid(client_state_t* state) {
         clear();
         
@@ -197,6 +218,7 @@ void draw_grid(client_state_t* state) {
         // Draw cities
         draw_cities(state);
 	draw_armies(state);
+	draw_lories(state);
         
         // Add some UI information
         mvprintw(GRID_SIZE + 1, 0, "Cities: %d | Click to place X | F1 to quit", state->city_count);
