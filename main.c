@@ -174,6 +174,14 @@ void draw_cities(client_state_t* state) {
         pthread_mutex_unlock(&state->cities_mutex);
 }
 
+void draw_armies(client_state_t* state) {
+	pthread_mutex_lock(&state->armies_mutex);
+	for (int i = 0; i < state->army_count; i++) {
+		mvprintw(state->armies[i].x, state->armies[i].y * CELL_SPACING, "%c", 'A');
+	}
+	pthread_mutex_unlock(&state->armies_mutex);
+}
+
 void draw_grid(client_state_t* state) {
         clear();
         
@@ -188,6 +196,7 @@ void draw_grid(client_state_t* state) {
         
         // Draw cities
         draw_cities(state);
+	draw_armies(state);
         
         // Add some UI information
         mvprintw(GRID_SIZE + 1, 0, "Cities: %d | Click to place X | F1 to quit", state->city_count);
