@@ -32,6 +32,9 @@ Then to compile, i use:
 Then to run, use: 
 ``  ./game IP PORT ``
 
+There is a help flag
+`` ./game --help ``
+
 
 ### side note 
 
