@@ -124,6 +124,8 @@ void* network_handler(void* arg) {
 				state->lories[state->lory_count].rt = rt;
 				state->lories[state->lory_count].r = r;
 				state->lories[state->lory_count].o = o;
+				state->lory_count++;
+				state->needs_redraw = 1;
 			}
 			pthread_mutex_unlock(&state->lories_mutex);
 
@@ -190,7 +192,7 @@ void draw_cities(client_state_t* state) {
 void draw_armies(client_state_t* state) {
 	pthread_mutex_lock(&state->armies_mutex);
 	for (int i = 0; i < state->army_count; i++) {
-		mvprintw(state->armies[i].x, state->armies[i].y * CELL_SPACING, "%c", 'A');
+		mvprintw(state->armies[i].y, state->armies[i].x * CELL_SPACING, "%c", 'A');
 	}
 	pthread_mutex_unlock(&state->armies_mutex);
 }
@@ -198,7 +200,7 @@ void draw_armies(client_state_t* state) {
 void draw_lories(client_state_t* state) {
 	pthread_mutex_lock(&state->lories_mutex);
 	for (int i = 0; i < state->lory_count; i++) {
-		mvprintw(state->lories[i].x, state->lories[i].y * CELL_SPACING, "%c", 'L');
+		mvprintw(state->lories[i].y, state->lories[i].x * CELL_SPACING, "%c", 'L');
 	}
 	pthread_mutex_unlock(&state->lories_mutex);
 }
