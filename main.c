@@ -48,6 +48,7 @@ typedef struct {
 
 typedef struct {
         int sockfd;
+	int id;
         pthread_t network_thread;
         volatile int running;
         char grid[GRID_SIZE][GRID_SIZE];
@@ -58,6 +59,11 @@ typedef struct {
         lory_t lories[MAX_LORIES];
         int lory_count;
 
+	int amov_x;
+	int amov_y;
+
+	int select_target;
+
         pthread_mutex_t cities_mutex;
         pthread_mutex_t grid_mutex;
         pthread_mutex_t armies_mutex;
@@ -65,6 +71,28 @@ typedef struct {
 
         int needs_redraw; // Flag to indicate UI needs refresh
 } client_state_t;
+
+// ==================== Game Logic ===========================
+
+int check_army (client_state_t* state, int x, int y) {
+	
+	for ( int i = 0; i < state->army_count; i++) {
+		if ( state->armies[i].x == x && state->armies[i].y == y ) {
+			return 1;
+		}
+	}
+	return 0;
+}
+
+int find_army (client_state_t* state, int x, int y) {
+	
+	for ( int i = 0; i < state->army_count; i++) {
+		if (state->armies[i].x == x && state->armies[i].y == y ) {
+			return i;
+		}
+	}
+	return -1;
+}
 
 // ==================== NETWORK FUNCTIONS ====================
 void* network_handler(void* arg) {
@@ -81,7 +109,7 @@ void* network_handler(void* arg) {
                 buffer[bytes] = '\0';
                 
                 // Parse server updates
-                int x, y, p, o, rt, r, s;
+                int x, y, p, o, rt, r, s, old_x, old_y;
                 
                 if (sscanf(buffer, "SET %d %d", &x, &y) == 2) {
                         if (x >= 0 && x < GRID_SIZE && y >= 0 && y < GRID_SIZE) {
@@ -130,6 +158,23 @@ void* network_handler(void* arg) {
 			pthread_mutex_unlock(&state->lories_mutex);
 
 
+		// AUPD is ARMY UPDATE from server "AUPD old_x old_y new_x new_y new_s o" 
+		} else if (sscanf(buffer, "AUPD %d %d %d %d %d %d", &old_x, &old_y, &x, &y, &s, &o) == 6) {
+			pthread_mutex_lock(&state->armies_mutex);
+
+			if ( old_x < 0 ) { old_x = x; }
+			if ( old_y < 0 ) { old_y = y; }
+		
+			int index = find_army(state, old_x, old_y);
+			state->armies[index].x = x;
+			state->armies[index].y = y;
+			state->armies[index].s = s;
+			state->armies[index].o = o;
+			state->needs_redraw = 1;
+
+			pthread_mutex_unlock(&state->armies_mutex);
+
+
 
 		} else if (strncmp(buffer, "END_INIT", 8) == 0) {
                         state->needs_redraw = 1; // Trigger redraw after initial state
@@ -143,6 +188,13 @@ void send_click(client_state_t* state, int x, int y) {
         char msg[MESSAGE_SIZE];
         snprintf(msg, sizeof(msg), "CLICK %d %d\n", x, y);
         send(state->sockfd, msg, strlen(msg), 0);
+}
+
+void send_army_move(client_state_t* state, int x, int y, int tx, int ty) {
+	char msg[MESSAGE_SIZE];
+        snprintf(msg, sizeof(msg), "AMOV %d %d %d %d\n", x, y, tx, ty);
+        send(state->sockfd, msg, strlen(msg), 0);
+
 }
 
 int connect_to_server(client_state_t* state, const char* server_ip, int port) {
@@ -172,10 +224,11 @@ int connect_to_server(client_state_t* state, const char* server_ip, int port) {
 
 // ==================== UI FUNCTIONS ====================
 void init_grid(client_state_t* state) {
+	
         pthread_mutex_lock(&state->grid_mutex);
         for (int y = 0; y < GRID_SIZE; y++) {
                 for (int x = 0; x < GRID_SIZE; x++) {
-                        state->grid[y][x] = '.';
+                        state->grid[y][x] = '~';
                 }
         }
         pthread_mutex_unlock(&state->grid_mutex);
@@ -227,6 +280,7 @@ void draw_grid(client_state_t* state) {
         refresh();
         
         state->needs_redraw = 0; // Reset redraw flag
+	
 }
 
 void handle_click(client_state_t* state, MEVENT* event) {
@@ -234,7 +288,22 @@ void handle_click(client_state_t* state, MEVENT* event) {
         int grid_y = event->y;
         
         if (grid_x >= 0 && grid_x < GRID_SIZE && grid_y >= 0 && grid_y < GRID_SIZE) {
-                send_click(state, grid_x, grid_y);
+		
+		if ( state->select_target ) {
+			state->select_target = 0;
+			send_army_move(state, state->amov_x, state->amov_y, grid_x, grid_y);
+
+		}
+
+		if (check_army(state, grid_x, grid_y)){
+			//in check army it should also check owner but for now it is not implemented
+			state->amov_x = grid_x;
+			state->amov_y = grid_y;
+			state->select_target = 1;
+		}
+		else {
+                	send_click(state, grid_x, grid_y);
+		}
         }
 }
 
@@ -258,6 +327,7 @@ void print_usage(const char* program_name) {
 int main(int argc, char *argv[]) {
         char *server_ip = "127.0.0.1";
         int port = DEFAULT_PORT;
+	int id = 0;
         
         // Parse command line arguments
         if (argc < 2) {
@@ -274,7 +344,20 @@ int main(int argc, char *argv[]) {
                         return 1;
                 }
                 printf("Connecting to: %s:%d\n", server_ip, port);
-        } else {
+        } else if (argc == 4) {
+		server_ip = argv[1];
+		port = atoi(argv[2]);
+		id = atoi(argv[3]);
+		if (port <= 0 || port > 65535) {
+                        fprintf(stderr, "Error: Invalid port number. Must be between 1 and 65535.\n");
+                        print_usage(argv[0]);
+                        return 1;
+                }
+                printf("Connecting to: %s:%d\n", server_ip, port);
+
+
+
+	} else {
                 fprintf(stderr, "Error: Too many arguments.\n");
                 print_usage(argv[0]);
                 return 1;
@@ -282,6 +365,7 @@ int main(int argc, char *argv[]) {
 
         client_state_t state = {
                 .sockfd = 0,
+		.id = id,
                 .running = 1,
                 .city_count = 0,
                 .army_count = 0,
@@ -290,7 +374,10 @@ int main(int argc, char *argv[]) {
                 .grid_mutex = PTHREAD_MUTEX_INITIALIZER,
                 .armies_mutex = PTHREAD_MUTEX_INITIALIZER,
                 .lories_mutex = PTHREAD_MUTEX_INITIALIZER,
-                .needs_redraw = 1 // Start with needing a redraw
+                .needs_redraw = 1, // Start with needing a redraw
+		.select_target = 0,
+		.amov_x = -1,
+		.amov_y = -1
         };
         
         // Connect to server
